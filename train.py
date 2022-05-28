@@ -66,7 +66,7 @@ def main(args):
                             sampler=sampler_val, num_workers=args.num_workers,
                             collate_fn=collate_fn)
 
-    model = FiDT5(args.t5_name, args.dropout).to(device)
+    model = FiDT5(t5_name=args.t5_name, dropout=args.dropout).to(device)
     model.set_checkpoint(args.use_checkpoint)
     logger.log(f'{count_parameters(model)} parameters')
     logger.log(f'Checkpointing: {args.use_checkpoint}')

@@ -1,19 +1,36 @@
+import copy
 import numpy as np
+import os
 import torch
 import torch.nn as nn
 import torch.distributed as dist
 
-from transformers import T5Config, T5ForConditionalGeneration
 from evaluate import exact_match_score
+from model_ref import FiDT5_ref
+from transformers import T5Config, T5ForConditionalGeneration
 
 
 class FiDT5(nn.Module):
 
-    def __init__(self, t5_name='t5-base', dropout=0.1):
+    def __init__(self, t5_name=None, dropout=0.1, saved_model=None):
         super().__init__()
-        config = T5Config.from_pretrained(t5_name, dropout_rate=dropout)
-        self.t5 = T5ForConditionalGeneration.from_pretrained(t5_name,
-                                                             config=config)
+        assert t5_name is not None or saved_model is not None
+        if t5_name is not None:
+            config = T5Config.from_pretrained(t5_name, dropout_rate=dropout)
+            self.t5 = T5ForConditionalGeneration.from_pretrained(t5_name,
+                                                                 config=config)
+        if saved_model is not None:
+            if os.path.isdir(saved_model):
+                # Loading reference FiDT5 saved with save_pretrained, must
+                # unwrap the encoder and copy.
+                self.t5 = T5ForConditionalGeneration.from_pretrained(
+                    saved_model)
+                t5_ref = FiDT5_ref.from_pretrained(saved_model)
+                t5_ref.unwrap_encoder()
+                self.t5.encoder = copy.deepcopy(t5_ref.encoder)
+            else:  # Loading my model
+                pass
+
         self.wrap_encoder()
 
     def wrap_encoder(self):
@@ -42,7 +59,7 @@ class FiDT5(nn.Module):
         attention_mask = attention_mask.view(batch_size, -1)
 
         if generate:
-            return self.t5.generate(input_ids, max_length,
+            return self.t5.generate(input_ids, max_length=max_length,
                                     attention_mask=attention_mask)
         else:
             return self.t5(input_ids, attention_mask, labels=labels)
@@ -108,7 +125,6 @@ def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
     model.eval()
     if device is None:
         device = torch.device('cpu')
-
 
     # We must ensure the wrapped encoder has main_input_name ('input_ids')
     # because of this:
