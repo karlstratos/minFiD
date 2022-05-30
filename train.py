@@ -104,7 +104,6 @@ def main(args):
             model_out = model(P, P_mask, labels=T)
 
             loss = model_out.loss
-            print(loss)
             loss.backward()
 
             if step % args.num_accumulation_steps == 0:
@@ -120,8 +119,8 @@ def main(args):
             curr_loss += loss.item()
 
             if step % args.num_eval_steps == 0:
-                dev_em = get_mean_em(model, loader_val, tokenizer, rank,
-                                     world_size, device)
+                dev_em, _ = get_mean_em(model, loader_val, tokenizer, rank,
+                                        world_size, device, disable_tqdm=True)
                 model.train()
                 if is_main_process:
                     is_best_string = ''

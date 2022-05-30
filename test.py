@@ -65,7 +65,9 @@ def main(args):
     start_time = datetime.now()
     mean_em, answers = get_mean_em(model, loader, tokenizer, rank, world_size,
                                    device)
-    logger.log(f'\nDone | EM: {mean_em} | total time {strtime(start_time)}')
+    num_correct = int(sum([score for _, _, score in answers.values()]))
+    logger.log(f'\nDone | EM: {mean_em:3.2f} ({num_correct} / {len(dataset)}) |'
+               f' total time {strtime(start_time)}')
 
     if args.pred and is_main_process:
         with open(args.pred, 'w') as f:

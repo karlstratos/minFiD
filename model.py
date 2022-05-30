@@ -121,7 +121,8 @@ class CheckpointWrapper(torch.nn.Module):
         return output
 
 
-def get_mean_em0(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
+def get_mean_em0(model, loader, tokenizer, rank=-1, world_size=-1, device=None,
+                 disable_tqdm=False):
     model.eval()
     if hasattr(model, 'module'):
         model = model.module
@@ -141,7 +142,7 @@ def get_mean_em0(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
     num_examples = 0
     scores = []
     with torch.no_grad():
-        for batch in tqdm(loader):
+        for batch in tqdm(loader, disable=disable_tqdm):
             I, T, P, P_mask = [tensor.to(device) for tensor in batch]
             outputs = model(P, P_mask, generate=True, max_length=50)
 
@@ -164,7 +165,8 @@ def get_mean_em0(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
     return mean_em * 100., {}
 
 
-def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
+def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None,
+                disable_tqdm=False):
     model.eval()
     if hasattr(model, 'module'):
         model = model.module
@@ -186,7 +188,7 @@ def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
     scores = []
     answers = {}
     with torch.no_grad():
-        for batch in tqdm(loader):
+        for batch in tqdm(loader, disable=disable_tqdm):
             I, T, P, P_mask = [tensor.to(device) for tensor in batch]
             outputs = model(P, P_mask, generate=True, max_length=MAX_LENGTH)
             O = torch.full((outputs.size(0), MAX_LENGTH),
