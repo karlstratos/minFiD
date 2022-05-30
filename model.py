@@ -121,8 +121,11 @@ class CheckpointWrapper(torch.nn.Module):
         return output
 
 
-def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
+def get_mean_em0(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
     model.eval()
+    if hasattr(model, 'module'):
+        model = model.module
+
     if device is None:
         device = torch.device('cpu')
 
@@ -133,10 +136,12 @@ def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
     # forecasting properties of its children.
     model.t5.encoder.main_input_name = model.t5.encoder.encoder.main_input_name
 
+    from tqdm import tqdm
+
     num_examples = 0
     scores = []
     with torch.no_grad():
-        for batch in loader:
+        for batch in tqdm(loader):
             I, T, P, P_mask = [tensor.to(device) for tensor in batch]
             outputs = model(P, P_mask, generate=True, max_length=50)
 
@@ -156,4 +161,54 @@ def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
     else:
         mean_em = np.mean(scores)
 
-    return mean_em * 100.
+    return mean_em * 100., {}
+
+
+def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None):
+    model.eval()
+    if hasattr(model, 'module'):
+        model = model.module
+
+    if device is None:
+        device = torch.device('cpu')
+
+    # We must ensure the wrapped encoder has main_input_name ('input_ids')
+    # because of this:
+    # https://github.com/huggingface/transformers/blob/518bd02c9b71291333ef374f055a4d1ac3042654/src/transformers/generation_utils.py#L414
+    # This seems to be a bad design decision since the mixin class is
+    # forecasting properties of its children.
+    model.t5.encoder.main_input_name = model.t5.encoder.encoder.main_input_name
+
+    from tqdm import tqdm
+
+    MAX_LENGTH = 50
+    num_examples = 0
+    scores = []
+    answers = {}
+    with torch.no_grad():
+        for batch in tqdm(loader):
+            I, T, P, P_mask = [tensor.to(device) for tensor in batch]
+            outputs = model(P, P_mask, generate=True, max_length=MAX_LENGTH)
+            O = torch.full((outputs.size(0), MAX_LENGTH),
+                           tokenizer.pad_token_id, dtype=torch.long).to(device)
+            O[:,:outputs.size(1)] = outputs
+
+            if world_size != -1:
+                I_list = [torch.zeros_like(I) for _ in range(world_size)]
+                O_list = [torch.zeros_like(O) for _ in range(world_size)]
+                dist.all_gather(tensor_list=I_list, tensor=I.contiguous())
+                dist.all_gather(tensor_list=O_list, tensor=O.contiguous())
+                I = torch.cat(I_list, 0)
+                O = torch.cat(O_list, 0)
+
+            for j, output in enumerate(O):
+                pred = tokenizer.decode(output, skip_special_tokens=True)
+                golds = loader.dataset.samples[I[j]]['answers']
+                score = max([exact_match_score(pred, gold) for gold in golds])
+                num_examples += 1
+                scores.append(score)
+                answers[I[j].item()] = (pred, golds, score)
+
+    mean_em = np.mean(scores)
+
+    return mean_em * 100., answers

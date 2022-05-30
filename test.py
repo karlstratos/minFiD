@@ -44,12 +44,13 @@ def main(args):
         shuffle=False)
 
     dataset = FiDDataset(args.data)
+    logger.log(f'Evaluating on {len(dataset)} examples')
     sampler = DistributedSampler(dataset, num_replicas=world_size,
-                                     rank=rank, shuffle=False) \
-                                     if is_distributed else None
+                                 rank=rank, shuffle=False) \
+                                 if is_distributed else None
     loader = DataLoader(dataset, args.batch_size, shuffle=False,
-                            sampler=sampler, num_workers=args.num_workers,
-                            collate_fn=collate_fn)
+                        sampler=sampler, num_workers=args.num_workers,
+                        collate_fn=collate_fn)
 
     model = FiDT5(saved_model=args.model).to(device)
     logger.log(f'{count_parameters(model)} parameters')
@@ -61,10 +62,16 @@ def main(args):
     else:
         logger.log('Single-process single-device, no model wrapping')
 
-    mean_em = get_mean_em(model, loader, tokenizer, rank,
-                          world_size, device)
-    logger.log(f'EM: {mean_em}')
+    start_time = datetime.now()
+    mean_em, answers = get_mean_em(model, loader, tokenizer, rank, world_size,
+                                   device)
+    logger.log(f'\nDone | EM: {mean_em} | total time {strtime(start_time)}')
 
+    if args.pred and is_main_process:
+        with open(args.pred, 'w') as f:
+            answers = sorted(answers.items(), key=lambda x: x[0])
+            for i, (pred, golds, score) in answers:
+                f.write(f'{i}\t{pred}\t{golds}\t{float(score)}\n')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -75,6 +82,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_length', type=int, default=200)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--gpus', default='', type=str)
+    parser.add_argument('--pred', type=str)
     args = parser.parse_args()
 
     # Set environment variables before importing libraries that use them!
