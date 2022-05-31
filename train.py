@@ -17,6 +17,7 @@ def main(args):
     from torch.utils.data.distributed import DistributedSampler
     from transformers import AutoTokenizer, set_seed, \
         get_linear_schedule_with_warmup
+    from tqdm import tqdm
     from util import Logger, check_distributed, strtime, count_parameters
 
     transformers.logging.set_verbosity_error()
@@ -66,7 +67,7 @@ def main(args):
                             sampler=sampler_val, num_workers=args.num_workers,
                             collate_fn=collate_fn)
 
-    model = FiDT5(t5_name=args.t5_name, dropout=args.dropout).to(device)
+    model = FiDT5(args.t5_name, dropout=args.dropout).to(device)
     model.set_checkpoint(args.use_checkpoint)
     logger.log(f'{count_parameters(model)} parameters')
     logger.log(f'Checkpointing: {args.use_checkpoint}')
@@ -87,6 +88,7 @@ def main(args):
     # Training
     model.train()
     epoch = 0
+    num_batches_processed = 0
     step = 0
     curr_loss = 0.
     best_dev_em = 0.
@@ -96,9 +98,8 @@ def main(args):
         if is_distributed:
             loader_train.sampler.set_epoch(epoch)
 
-        for i, batch in enumerate(loader_train):
+        for i, batch in enumerate(tqdm(loader_train, disable=not args.tqdm)):
             I, T, P, P_mask = [tensor.to(device) for tensor in batch]
-            step += 1
 
             # loss, logits, past_key_values, encoder_last_hidden_state
             model_out = model(P, P_mask, labels=T)
@@ -106,11 +107,14 @@ def main(args):
             loss = model_out.loss
             loss.backward()
 
-            if step % args.num_accumulation_steps == 0:
+            num_batches_processed += 1
+
+            if num_batches_processed % args.num_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
                 optimizer.step()
                 scheduler.step()
                 model.zero_grad()
+                step += 1
 
             if is_distributed:
                 dist.reduce(loss, 0, op=dist.ReduceOp.SUM)
@@ -135,7 +139,7 @@ def main(args):
                     log += f'step {step:5d} / {args.num_training_steps:5d} | '
                     log += f'lr: {scheduler.get_last_lr()[0]:.5f} | '
                     log += f'loss: {curr_loss / args.num_eval_steps:10.3f} | '
-                    log += f'Val EM: {dev_em:3.2f} |'
+                    log += f'val EM: {dev_em:10.2f} |'
 
                     log += is_best_string
                     logger.log(log)
@@ -144,20 +148,26 @@ def main(args):
             if step >= args.num_training_steps:
                 break
 
+    if is_main_process and sd_best is not None:
+        logger.log(f'\nDone training | total time {strtime(start_time)} | '
+                   f'saving best model to {args.model}')
+        torch.save({'sd': sd_best, 'args': args}, args.model)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('model', type=str)
     parser.add_argument('data_train', type=str)
     parser.add_argument('data_val', type=str)
     parser.add_argument('--num_contexts', type=int, default=5)
-    parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--batch_size_val', type=int, default=512)
-    parser.add_argument('--max_length', type=int, default=200)
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--batch_size_val', type=int, default=2)
+    parser.add_argument('--max_length', type=int, default=250)
+    parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--num_warmup_steps', type=int, default=0)
-    parser.add_argument('--num_training_steps', type=int, default=1000)
-    parser.add_argument('--weight_decay', type=float, default=0.1)
+    parser.add_argument('--num_warmup_steps', type=int, default=1000)
+    parser.add_argument('--num_training_steps', type=int, default=15000)
+    parser.add_argument('--weight_decay', type=float, default=0.01)
     parser.add_argument('--clip', type=float, default=1.)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
@@ -166,6 +176,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_accumulation_steps', type=int, default=1)
     parser.add_argument('--num_eval_steps', type=int, default=1)
     parser.add_argument('--no_shuffle', action='store_true')
+    parser.add_argument('--tqdm', action='store_true')
     parser.add_argument('--gpus', default='', type=str)
     args = parser.parse_args()
 

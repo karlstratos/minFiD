@@ -11,7 +11,7 @@ def main(args):
     from copy import deepcopy
     from data import FiDDataset, tensorize_train
     from datetime import datetime
-    from model import FiDT5, get_mean_em
+    from model import load_model, get_mean_em
     from torch.utils.data import DataLoader
     from torch.utils.data.distributed import DistributedSampler
     from transformers import AutoTokenizer
@@ -52,8 +52,15 @@ def main(args):
                         sampler=sampler, num_workers=args.num_workers,
                         collate_fn=collate_fn)
 
-    model = FiDT5(saved_model=args.model).to(device)
+    model, saved_args = load_model(args.model, device)
     logger.log(f'{count_parameters(model)} parameters')
+    if saved_args is not None:
+        if saved_args.max_length != args.max_length:
+            logger.log(f'Warning: diff max length, {saved_args.max_length}'
+                       f' in training, {args.max_length} given')
+        if saved_args.num_contexts != args.num_contexts:
+            logger.log(f'Warning: diff num contexts, {saved_args.num_contexts}'
+                       f' in training, {args.num_contexts} given')
 
     if is_distributed:
         logger.log('DDP wrapping')

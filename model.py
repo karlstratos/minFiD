@@ -10,27 +10,32 @@ from model_ref import FiDT5_ref
 from transformers import T5Config, T5ForConditionalGeneration
 
 
+def load_model(model_path, device):
+
+    if os.path.isdir(model_path):
+        # Loading reference FiDT5 saved with save_pretrained, must unwrap the
+        # encoder and copy.
+        t5_ref = FiDT5_ref.from_pretrained(model_path)
+        t5_ref.unwrap_encoder()
+        model = FiDT5('t5-base')
+        model.load_t5(t5_ref.state_dict())
+        saved_args = None
+    else:  # Loading my model
+        saved_pickle = torch.load(model_path, map_location=device)
+        saved_args = saved_pickle['args']
+        model = FiDT5(saved_args.t5_name)
+        model.load_state_dict(saved_pickle['sd'])
+
+    return model.to(device), saved_args
+
+
 class FiDT5(nn.Module):
 
-    def __init__(self, t5_name=None, dropout=0.1, saved_model=None):
+    def __init__(self, t5_name, dropout=0.1):
         super().__init__()
-        assert t5_name is not None or saved_model is not None
-        if t5_name is not None:
-            config = T5Config.from_pretrained(t5_name, dropout_rate=dropout)
-            self.t5 = T5ForConditionalGeneration.from_pretrained(t5_name,
-                                                                 config=config)
-        if saved_model is not None:
-            if os.path.isdir(saved_model):
-                # Loading reference FiDT5 saved with save_pretrained, must
-                # unwrap the encoder and copy.
-                self.t5 = T5ForConditionalGeneration.from_pretrained(
-                    saved_model)
-                t5_ref = FiDT5_ref.from_pretrained(saved_model)
-                t5_ref.unwrap_encoder()
-                self.t5.encoder = copy.deepcopy(t5_ref.encoder)
-            else:  # Loading my model
-                pass
-
+        config = T5Config.from_pretrained(t5_name, dropout_rate=dropout)
+        self.t5 = T5ForConditionalGeneration.from_pretrained(t5_name,
+                                                             config=config)
         self.wrap_encoder()
 
     def wrap_encoder(self):

@@ -5,10 +5,16 @@ conda activate minDPR  # Same libraries
 conda deactivate
 ```
 
+## Toy
+```
+python train.py /tmp/model data/NQ/train3.json data/NQ/train3.json --max_length 30 --t5_name t5-small --gpus 0 --num_eval_steps 10 --no_shuffle --batch_size 2 --num_contexts 3  --dropout 0 --num_training_steps 20 --num_warmup_steps 2 --num_eval_steps 4
+python test.py /tmp/model data/NQ/train3.json --batch_size 1 --num_workers 1 --gpus 0 --num_contexts 3 --max_length 30  --pred /tmp/pred
+```
+
 # Training
 
 ```
-python train.py /tmp/model data/NQ/train3.json data/NQ/train3.json --max_length 30 --t5_name t5-small --gpus 0 --num_eval_steps 10 --no_shuffle --batch_size 2 --num_contexts 3  --dropout 0 --num_training_steps 20 --num_warmup_steps 2 --num_eval_steps 4
+torchrun --standalone --nnodes=1 --nproc_per_node=8 train.py /data/local/minFiD_runs/nq_base/model ../FiD/open_domain_data/NQ/train.json ../FiD/open_domain_data/NQ/dev.json --num_contexts 100 --batch_size 2 --batch_size_val 12 --max_length 250 --lr 0.00005 --dropout 0.1 --num_warmup_steps 1000 --num_training_steps 15000 --weight_decay 0.01 --clip 1. --num_workers 2 --seed 42 --t5_name t5-base --use_checkpoint --num_accumulation_steps 4 --num_eval_steps 500 --gpus 0,1,2,3,4,5,6,7
 ```
 
 # Running the public FiD model
