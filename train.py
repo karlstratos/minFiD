@@ -105,7 +105,7 @@ def main(args):
             # loss, logits, past_key_values, encoder_last_hidden_state
             model_out = model(P, P_mask, labels=T)
 
-            loss = model_out.loss
+            loss = model_out.loss  # default CrossEntropyLoss (mean reduction)
             loss.backward()
 
             num_batches_processed += 1
@@ -123,7 +123,7 @@ def main(args):
                     loss /= world_size
             curr_loss += loss.item()
 
-            if step % args.num_report_steps == 0:
+            if step >= 1 and step % args.num_report_steps == 0:
                 log = f'Epoch {epoch:3d} | '
                 log += f'step {step:5d} / {args.num_training_steps:5d} | '
                 log += f'time {strtime(start_time_report)} | '
