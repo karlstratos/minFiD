@@ -94,6 +94,7 @@ def main(args):
     best_dev_em = 0.
     sd_best = None
     start_time = datetime.now()
+    start_time_report = datetime.now()
     while step < args.num_training_steps:
         if is_distributed:
             loader_train.sampler.set_epoch(epoch)
@@ -109,7 +110,7 @@ def main(args):
 
             num_batches_processed += 1
 
-            if num_batches_processed % args.num_accumulation_steps == 0:
+            if num_batches_processed % args.grad_accumulation == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
                 optimizer.step()
                 scheduler.step()
@@ -122,31 +123,36 @@ def main(args):
                     loss /= world_size
             curr_loss += loss.item()
 
-            if step % args.num_eval_steps == 0:
-                dev_em, _ = get_mean_em(model, loader_val, tokenizer, rank,
-                                        world_size, device, disable_tqdm=True)
-                model.train()
-                if is_main_process:
-                    is_best_string = ''
+            if step % args.num_report_steps == 0:
+                log = f'Epoch {epoch:3d} | '
+                log += f'step {step:5d} / {args.num_training_steps:5d} | '
+                log += f'time {strtime(start_time_report)} | '
+                log += f'lr: {scheduler.get_last_lr()[0]:.5f} | '
+                log += f'loss: {curr_loss / args.num_report_steps:10.3f} | '
+
+                if step >= args.start_step_val:
+                    start_time_val = datetime.now()
+                    dev_em, _ = get_mean_em(model, loader_val, tokenizer, rank,
+                                            world_size, device,
+                                            disable_tqdm=True)
+                    model.train()
+                    log += f'val EM: {dev_em:10.2f} ({strtime(start_time_val)})'
                     if dev_em > best_dev_em:
                         sd = model.module.state_dict() if is_distributed else \
                              model.state_dict()
                         sd_best = deepcopy(sd)
-                        is_best_string = ' <-------------'
                         best_dev_em = dev_em
+                        log += f' <-------------'
 
-                    log = f'Epoch {epoch:3d} | '
-                    log += f'step {step:5d} / {args.num_training_steps:5d} | '
-                    log += f'lr: {scheduler.get_last_lr()[0]:.5f} | '
-                    log += f'loss: {curr_loss / args.num_eval_steps:10.3f} | '
-                    log += f'val EM: {dev_em:10.2f} |'
-
-                    log += is_best_string
-                    logger.log(log)
-                    curr_loss = 0.
+                logger.log(log)
+                curr_loss = 0.
+                start_time_report = datetime.now()
 
             if step >= args.num_training_steps:
                 break
+
+        epoch += 1
+
 
     if is_main_process and sd_best is not None:
         logger.log(f'\nDone training | total time {strtime(start_time)} | '
@@ -173,8 +179,9 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--t5_name', type=str, default='t5-base')
     parser.add_argument('--use_checkpoint', action='store_true')
-    parser.add_argument('--num_accumulation_steps', type=int, default=1)
-    parser.add_argument('--num_eval_steps', type=int, default=1)
+    parser.add_argument('--grad_accumulation', type=int, default=1)
+    parser.add_argument('--num_report_steps', type=int, default=1)
+    parser.add_argument('--start_step_val', type=int, default=1)
     parser.add_argument('--no_shuffle', action='store_true')
     parser.add_argument('--tqdm', action='store_true')
     parser.add_argument('--gpus', default='', type=str)
