@@ -18,7 +18,7 @@ class FiDDataset(torch.utils.data.Dataset):
         return self.samples[index], index
 
 
-def tensorize_train(samples, num_contexts, tokenizer, max_length, shuffle=True):
+def tensorize(samples, num_contexts, tokenizer, max_length, shuffle=True):
     indices = []
     questions = []
     passages_list = []

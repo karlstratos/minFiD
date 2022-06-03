@@ -9,7 +9,7 @@ def main(args):
     import transformers
 
     from copy import deepcopy
-    from data import FiDDataset, tensorize_train
+    from data import FiDDataset, tensorize
     from datetime import datetime
     from file_handling import mkdir_optional
     from model import FiDT5, get_mean_em
@@ -49,9 +49,9 @@ def main(args):
                                        rank=rank, shuffle=True,
                                        seed=args.seed) \
                                        if is_distributed else None
-    collate_fn = lambda samples: tensorize_train(
-        samples, args.num_contexts, tokenizer, args.max_length,
-        shuffle=not args.no_shuffle)
+    collate_fn = lambda samples: tensorize(samples, args.num_contexts,
+                                           tokenizer, args.max_length,
+                                           shuffle=not args.no_shuffle)
     loader_train = DataLoader(dataset_train, args.batch_size,
                               shuffle=(sampler_train is None) and \
                               (not args.no_shuffle),
@@ -95,7 +95,8 @@ def main(args):
     sd_best = None
     start_time = datetime.now()
     start_time_report = datetime.now()
-    while step < args.num_training_steps:
+    step_has_been_reported = False
+    while step < args.num_training_steps:  # TODO: save each epoch is fine?
         if is_distributed:
             loader_train.sampler.set_epoch(epoch)
 
@@ -116,6 +117,7 @@ def main(args):
                 scheduler.step()
                 model.zero_grad()
                 step += 1
+                step_has_been_reported = False
 
             if is_distributed:
                 dist.reduce(loss, 0, op=dist.ReduceOp.SUM)
@@ -123,7 +125,8 @@ def main(args):
                     loss /= world_size
             curr_loss += loss.item()
 
-            if step >= 1 and step % args.num_report_steps == 0:
+            if step >= 1 and step % args.num_report_steps == 0 and \
+               not step_has_been_reported:
                 log = f'Epoch {epoch:3d} | '
                 log += f'step {step:5d} / {args.num_training_steps:5d} | '
                 log += f'time {strtime(start_time_report)} | '
@@ -132,11 +135,15 @@ def main(args):
 
                 if step >= args.start_step_val:
                     start_time_val = datetime.now()
-                    dev_em, _ = get_mean_em(model, loader_val, tokenizer, rank,
-                                            world_size, device,
-                                            disable_tqdm=True)
+                    dev_em, answers = get_mean_em(model, loader_val, tokenizer,
+                                                  rank, world_size, device,
+                                                  disable_tqdm=True)
                     model.train()
-                    log += f'val EM: {dev_em:10.2f} ({strtime(start_time_val)})'
+                    num_correct = int(sum([score for _, _, score in
+                                           answers.values()]))
+                    log += f'val EM: {dev_em:10.2f} '
+                    log += f'({num_correct} / {len(dataset_val)}, '
+                    log += f'{strtime(start_time_val)})'
                     if dev_em > best_dev_em:
                         sd = model.module.state_dict() if is_distributed else \
                              model.state_dict()
@@ -147,6 +154,7 @@ def main(args):
                 logger.log(log)
                 curr_loss = 0.
                 start_time_report = datetime.now()
+                step_has_been_reported = True
 
             if step >= args.num_training_steps:
                 break

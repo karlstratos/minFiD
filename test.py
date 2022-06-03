@@ -9,7 +9,7 @@ def main(args):
     import transformers
 
     from copy import deepcopy
-    from data import FiDDataset, tensorize_train
+    from data import FiDDataset, tensorize
     from datetime import datetime
     from model import load_model, get_mean_em
     from torch.utils.data import DataLoader
@@ -39,9 +39,9 @@ def main(args):
 
     tokenizer = AutoTokenizer.from_pretrained('t5-base') # TODO: change
 
-    collate_fn = lambda samples: tensorize_train(
-        samples, args.num_contexts, tokenizer, args.max_length,
-        shuffle=False)
+    collate_fn = lambda samples: tensorize(samples, args.num_contexts,
+                                           tokenizer, args.max_length,
+                                           shuffle=False)
 
     dataset = FiDDataset(args.data)
     logger.log(f'Evaluating on {len(dataset)} examples')

@@ -194,7 +194,7 @@ def get_mean_em(model, loader, tokenizer, rank=-1, world_size=-1, device=None,
     answers = {}
     with torch.no_grad():
         for batch in tqdm(loader, disable=disable_tqdm):
-            I, T, P, P_mask = [tensor.to(device) for tensor in batch]
+            I, _, P, P_mask = [tensor.to(device) for tensor in batch]
             outputs = model(P, P_mask, generate=True, max_length=MAX_LENGTH)
             O = torch.full((outputs.size(0), MAX_LENGTH),
                            tokenizer.pad_token_id, dtype=torch.long).to(device)
