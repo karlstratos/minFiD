@@ -17,7 +17,6 @@ def main(args):
     from torch.utils.data.distributed import DistributedSampler
     from transformers import AutoTokenizer, set_seed, \
         get_linear_schedule_with_warmup
-    from tqdm import tqdm
     from util import Logger, check_distributed, strtime, count_parameters
 
     transformers.logging.set_verbosity_error()
@@ -99,7 +98,7 @@ def main(args):
         if is_distributed:
             loader_train.sampler.set_epoch(epoch)
 
-        for i, batch in enumerate(tqdm(loader_train, disable=not args.tqdm)):
+        for i, batch in enumerate(loader_train):
             I, T, P, P_mask = [tensor.to(device) for tensor in batch]
 
             # loss, logits, past_key_values, encoder_last_hidden_state
@@ -129,7 +128,7 @@ def main(args):
         log += f'step {step:5d} / {num_training_steps:5d} | '
         log += f'time {strtime(start_time_epoch)} | '
         log += f'lr: {scheduler.get_last_lr()[0]:.5f} | '
-        log += f'loss: {loss_sum / len(loader_train)} | '
+        log += f'loss: {loss_sum / len(loader_train):10.3f} | '
 
         start_time_val = datetime.now()
         dev_em, answers = get_mean_em(model, loader_val, tokenizer,
@@ -137,7 +136,7 @@ def main(args):
                                       disable_tqdm=True)
         num_correct = int(sum([score for _, _, score in answers.values()]))
         log += f'val EM: {dev_em:10.2f} '
-        log += f'({num_correct} / {len(dataset_val)}, strtime(start_time_val)})'
+        log += f'({num_correct} / {len(dataset_val)} {strtime(start_time_val)})'
         if dev_em > best_dev_em:
             sd = model.module.state_dict() if is_distributed else \
                  model.state_dict()
@@ -174,7 +173,6 @@ if __name__ == '__main__':
     parser.add_argument('--grad_accumulation', type=int, default=1)
     parser.add_argument('--no_shuffle', action='store_true')
     parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--tqdm', action='store_true')
     parser.add_argument('--gpus', default='', type=str)
     args = parser.parse_args()
 
