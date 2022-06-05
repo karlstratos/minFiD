@@ -57,7 +57,8 @@ def main(args):
                               sampler=sampler_train,
                               num_workers=args.num_workers,
                               collate_fn=collate_fn)
-    num_training_steps = len(loader_train) * args.epochs
+    num_training_steps = len(loader_train) * args.epochs // \
+                         args.grad_accumulation
 
     dataset_val = FiDDataset(args.data_val)
     sampler_val = DistributedSampler(dataset_val, num_replicas=world_size,

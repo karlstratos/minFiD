@@ -26,7 +26,9 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 test.py /data/local/minFiD_r
 
 # Epoch version: more natural to model the relationship between effective batch size and the number of steps
 # I'm also trying a diff lr because of this: https://github.com/facebookresearch/FiD/issues/11
-torchrun --standalone --nnodes=1 --nproc_per_node=8 train_epoch.py /data/local/minFiD_runs/nq_base_epoch/model ../FiD/open_domain_data/NQ/train.json ../FiD/open_domain_data/NQ/dev.json --num_contexts 100 --batch_size 2 --batch_size_val 4 --max_length 250 --lr 1e-4 --dropout 0.1 --num_warmup_steps 1000 --epochs 15 --weight_decay 0.01 --clip 1. --num_workers 3 --seed 42 --t5_name t5-base --use_checkpoint --grad_accumulation 4 --gpus 0,1,2,3,4,5,6,7
+torchrun --standalone --nnodes=1 --nproc_per_node=8 train_epoch.py /data/local/minFiD_runs/nq_base_epoch/model ../FiD/open_domain_data/NQ/train.json ../FiD/open_domain_data/NQ/dev.json --num_contexts 100 --batch_size 2 --batch_size_val 4 --max_length 250 --lr 1e-4 --dropout 0.1 --num_warmup_steps 1000 --epochs 15 --weight_decay 0.01 --clip 1. --num_workers 3 --seed 42 --t5_name t5-base --use_checkpoint --grad_accumulation 4 --gpus 0,1,2,3,4,5,6,7  # 49.32 at epoch 9 (step 12370)
+
+torchrun --standalone --nnodes=1 --nproc_per_node=8 test.py /data/local/minFiD_runs/nq_base_epoch/model ../FiD/open_domain_data/NQ/test.json --batch_size 12 --num_workers 2 --gpus 0,1,2,3,4,5,6,7 --num_contexts 100 --max_length 250  --pred /data/local/minFiD_runs/nq_base_epoch/pred_test  # 50.53
 ```
 
 # Running the public FiD model
