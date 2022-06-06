@@ -152,12 +152,33 @@ def main(args):
                    f'saving best model to {args.model}')
         torch.save({'sd': sd_best, 'args': args}, args.model)
 
+    if args.data_test:
+        dataset_test = FiDDataset(args.data_test)
+        sampler_test = DistributedSampler(dataset_test, num_replicas=world_size,
+                                          rank=rank, shuffle=False) \
+                                         if is_distributed else None
+        loader_test = DataLoader(dataset_test, args.batch_size_val,
+                                 shuffle=False, sampler=sampler_test,
+                                 num_workers=args.num_workers,
+                                 collate_fn=collate_fn)
+        if hasattr(model, 'module'):
+            model.module.load_state_dict(sd_best)
+        else:
+            model.load_state_dict(sd_best)
+
+        mean_em, answers = get_mean_em(model, loader_test, tokenizer, rank,
+                                       world_size, device, disable_tqdm=True)
+        num_correct = int(sum([score for _, _, score in answers.values()]))
+        logger.log(f'Test EM: {mean_em:3.2f} '
+                   f'({num_correct} / {len(dataset_test)})')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('model', type=str)
     parser.add_argument('data_train', type=str)
     parser.add_argument('data_val', type=str)
+    parser.add_argument('--data_test', type=str)
     parser.add_argument('--num_contexts', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--batch_size_val', type=int, default=2)
