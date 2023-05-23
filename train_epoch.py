@@ -137,7 +137,7 @@ def main(args):
                                       disable_tqdm=True)
         num_correct = int(sum([score for _, _, score in answers.values()]))
         log += f'val EM: {dev_em:10.2f} '
-        log += f'({num_correct} / {len(dataset_val)}, strtime(start_time_val)})'
+        log += f'({num_correct} / {len(dataset_val)}, {strtime(start_time_val)})'
         if dev_em > best_dev_em:
             sd = model.module.state_dict() if is_distributed else \
                  model.state_dict()
