@@ -17,7 +17,6 @@ def main(args):
     from torch.utils.data.distributed import DistributedSampler
     from transformers import AutoTokenizer, set_seed, \
         get_linear_schedule_with_warmup
-    from tqdm import tqdm
     from util import Logger, check_distributed, strtime, count_parameters
 
     transformers.logging.set_verbosity_error()
@@ -58,7 +57,8 @@ def main(args):
                               sampler=sampler_train,
                               num_workers=args.num_workers,
                               collate_fn=collate_fn)
-    num_training_steps = len(loader_train) * args.epochs
+    num_training_steps = len(loader_train) * args.epochs // \
+                         args.grad_accumulation
 
     dataset_val = FiDDataset(args.data_val)
     sampler_val = DistributedSampler(dataset_val, num_replicas=world_size,
@@ -99,7 +99,7 @@ def main(args):
         if is_distributed:
             loader_train.sampler.set_epoch(epoch)
 
-        for i, batch in enumerate(tqdm(loader_train, disable=not args.tqdm)):
+        for i, batch in enumerate(loader_train):
             I, T, P, P_mask = [tensor.to(device) for tensor in batch]
 
             # loss, logits, past_key_values, encoder_last_hidden_state
@@ -129,7 +129,7 @@ def main(args):
         log += f'step {step:5d} / {num_training_steps:5d} | '
         log += f'time {strtime(start_time_epoch)} | '
         log += f'lr: {scheduler.get_last_lr()[0]:.5f} | '
-        log += f'loss: {loss_sum / len(loader_train)} | '
+        log += f'loss: {loss_sum / len(loader_train):10.3f} | '
 
         start_time_val = datetime.now()
         dev_em, answers = get_mean_em(model, loader_val, tokenizer,
@@ -152,12 +152,33 @@ def main(args):
                    f'saving best model to {args.model}')
         torch.save({'sd': sd_best, 'args': args}, args.model)
 
+    if args.data_test:
+        dataset_test = FiDDataset(args.data_test)
+        sampler_test = DistributedSampler(dataset_test, num_replicas=world_size,
+                                          rank=rank, shuffle=False) \
+                                         if is_distributed else None
+        loader_test = DataLoader(dataset_test, args.batch_size_val,
+                                 shuffle=False, sampler=sampler_test,
+                                 num_workers=args.num_workers,
+                                 collate_fn=collate_fn)
+        if hasattr(model, 'module'):
+            model.module.load_state_dict(sd_best)
+        else:
+            model.load_state_dict(sd_best)
+
+        mean_em, answers = get_mean_em(model, loader_test, tokenizer, rank,
+                                       world_size, device, disable_tqdm=True)
+        num_correct = int(sum([score for _, _, score in answers.values()]))
+        logger.log(f'Test EM: {mean_em:3.2f} '
+                   f'({num_correct} / {len(dataset_test)})')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('model', type=str)
     parser.add_argument('data_train', type=str)
     parser.add_argument('data_val', type=str)
+    parser.add_argument('--data_test', type=str)
     parser.add_argument('--num_contexts', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--batch_size_val', type=int, default=2)
@@ -174,7 +195,6 @@ if __name__ == '__main__':
     parser.add_argument('--grad_accumulation', type=int, default=1)
     parser.add_argument('--no_shuffle', action='store_true')
     parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--tqdm', action='store_true')
     parser.add_argument('--gpus', default='', type=str)
     args = parser.parse_args()
 
